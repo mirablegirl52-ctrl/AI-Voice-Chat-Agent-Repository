@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
+import { acquireMicAnalyser, releaseMicAnalyser } from '../lib/voice'
 
 interface Props {
   /** When true, visualizes live mic input. When false, shows an idle shimmer. */
@@ -9,50 +10,41 @@ interface Props {
 }
 
 /**
- * Waveform — shows live mic levels when active, otherwise a gentle idle shimmer.
+ * Waveform — shows live mic levels when active (from the shared mic analyser),
+ * otherwise a gentle idle shimmer. Does NOT open its own getUserMedia stream.
  */
-export default function Waveform({ active, bars = 32, height = 60 }: Props) {
+export default function Waveform({ active, bars = 28, height = 40 }: Props) {
   const [levels, setLevels] = useState<number[]>(() => new Array(bars).fill(0.1))
   const rafRef = useRef<number>(0)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const micRef = useRef<{ stream: MediaStream; ctx: AudioContext } | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
-    async function setupMic() {
+    async function setup() {
+      // Cancel any previous animation loop
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+
       if (!active) {
-        teardown()
         idleAnimate()
         return
       }
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop())
-          return
-        }
-        const ctx = new AudioContext()
-        const source = ctx.createMediaStreamSource(stream)
-        const analyser = ctx.createAnalyser()
-        analyser.fftSize = 128
-        source.connect(analyser)
-        analyserRef.current = analyser
-        micRef.current = { stream, ctx }
-        drawReal()
-      } catch {
-        // Permission denied — fall back to idle shimmer
-        idleAnimate()
-      }
-    }
 
-    function drawReal() {
-      const analyser = analyserRef.current
-      if (!analyser) return
+      // Acquire the shared analyser (no duplicate getUserMedia)
+      const analyser = await acquireMicAnalyser()
+      if (cancelled) {
+        releaseMicAnalyser()
+        return
+      }
+      if (!analyser) {
+        idleAnimate()
+        return
+      }
+
       const buffer = new Uint8Array(analyser.frequencyBinCount)
       const tick = () => {
+        if (cancelled) return
         analyser.getByteFrequencyData(buffer)
-        const step = Math.floor(buffer.length / bars)
+        const step = Math.max(1, Math.floor(buffer.length / bars))
         const next = Array.from({ length: bars }, (_, i) => {
           const val = buffer[i * step] / 255
           return Math.max(0.08, val)
@@ -66,9 +58,10 @@ export default function Waveform({ active, bars = 32, height = 60 }: Props) {
     function idleAnimate() {
       let t = 0
       const tick = () => {
+        if (cancelled) return
         t += 0.05
         const next = Array.from({ length: bars }, (_, i) => {
-          return 0.08 + Math.abs(Math.sin(t + i * 0.4)) * (active ? 0.25 : 0.12)
+          return 0.08 + Math.abs(Math.sin(t + i * 0.4)) * 0.12
         })
         setLevels(next)
         rafRef.current = requestAnimationFrame(tick)
@@ -76,21 +69,12 @@ export default function Waveform({ active, bars = 32, height = 60 }: Props) {
       tick()
     }
 
-    function teardown() {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      if (micRef.current) {
-        micRef.current.stream.getTracks().forEach((t) => t.stop())
-        micRef.current.ctx.close()
-        micRef.current = null
-      }
-      analyserRef.current = null
-    }
-
-    setupMic()
+    setup()
 
     return () => {
       cancelled = true
-      teardown()
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (active) releaseMicAnalyser()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, bars])

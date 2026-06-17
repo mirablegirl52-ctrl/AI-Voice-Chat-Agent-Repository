@@ -93,6 +93,7 @@ export const api = {
     const decoder = new TextDecoder()
     let buffer = ''
     let fullText = ''
+    let doneFired = false // Guard against duplicate onDone (issue: connection drop)
 
     while (true) {
       const { done, value } = await reader.read()
@@ -108,16 +109,24 @@ export const api = {
               fullText += payload.content
               handlers.onDelta?.(payload.content)
             } else if (payload.type === 'done') {
+              doneFired = true
               handlers.onDone?.(payload.content || fullText)
               return payload.content || fullText
+            } else if (payload.type === 'error') {
+              throw new Error(payload.message || 'Stream error')
             }
-          } catch {
-            // skip malformed lines
+          } catch (e) {
+            // Re-throw if it's our explicit error payload
+            if (e instanceof Error && e.message === (e as any).message) throw e
+            // skip malformed JSON lines
           }
         }
       }
     }
-    handlers.onDone?.(fullText)
+    // Fallback: stream ended without a `done` event — fire once
+    if (!doneFired && fullText) {
+      handlers.onDone?.(fullText)
+    }
     return fullText
   },
 }
