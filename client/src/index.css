@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-deep text-white antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(99, 102, 241, 0.3);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.5);
+  }
+}
+
+@layer components {
+  /* Glassmorphism card */
+  .glass {
+    @apply bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded-3xl;
+  }
+
+  .glass-strong {
+    @apply bg-white/[0.07] backdrop-blur-2xl border border-white/[0.12] rounded-3xl;
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-ai-400 via-purple-neon to-cyan-neon;
+  }
+
+  /* Glow button */
+  .btn-glow {
+    @apply relative bg-gradient-to-r from-ai-600 via-purple-neon to-ai-500 text-white font-semibold rounded-2xl
+           shadow-glow transition-all duration-300 hover:shadow-glow-purple hover:scale-[1.02] active:scale-[0.98];
+  }
+
+  /* Floating effect */
+  .floating {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  /* Orb pulse */
+  .orb-pulse {
+    animation: orb-pulse 2.5s ease-in-out infinite;
+  }
+
+  /* Gradient border */
+  .gradient-border {
+    position: relative;
+  }
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.5), rgba(168,85,247,0.5), rgba(34,211,238,0.5));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+
+@keyframes orb-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.04); opacity: 0.92; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* Particle dots */
+.particle {
+  position: absolute;
+  border-radius: 9999px;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Grid background */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(99, 102, 241, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 102, 241, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Aurora gradient blobs */
+.aurora {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.3;
+  pointer-events: none;
+}

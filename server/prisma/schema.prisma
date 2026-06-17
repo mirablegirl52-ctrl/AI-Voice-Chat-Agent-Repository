@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  passwordHash    String?
+  voicePreference String   @default("default")
+  personality     String   @default("friendly")
+  plan            String   @default("free")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  chats           Chat[]
+}
+
+model Chat {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  personality String    @default("friendly")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages    Message[]
+
+  @@index([userId])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  chatId    String
+  sender    String
+  text      String   @db.LongText
+  createdAt DateTime @default(now())
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+}
