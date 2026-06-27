@@ -35,3 +35,6 @@ npm-debug.log*
 
 # Platform-managed (drytis.dev) - secrets & generated metadata
 .drytis/
+
+# Corrupt leftover directory (filesystem inode corruption)
+server_old/
