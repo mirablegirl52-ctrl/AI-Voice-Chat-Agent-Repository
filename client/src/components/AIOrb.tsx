@@ -25,16 +25,44 @@ const config: Record<OrbState, { colors: string[]; label: string; speed: number 
   },
 }
 
+// Emotion → color tint for the speaking state
+const EMOTION_COLORS: Record<string, string[]> = {
+  neutral:    ['#22d3ee', '#06b6d4', '#8b5cf6'],
+  question:   ['#60a5fa', '#3b82f6', '#6366f1'],  // blue — inquisitive
+  excited:    ['#fbbf24', '#f59e0b', '#ec4899'],  // warm/gold — energy
+  thoughtful: ['#a78bfa', '#8b5cf6', '#6366f1'],  // purple — introspective
+  empathetic: ['#f472b6', '#ec4899', '#a855f7'],  // pink — warm/caring
+  playful:    ['#34d399', '#10b981', '#22d3ee'],  // green/teal — fun
+}
+
 interface Props {
   state: OrbState
   size?: number
   showLabel?: boolean
   onClick?: () => void
+  /** Current emotion affects orb color during speaking */
+  emotion?: string
+  /** Show a barge-in pulse effect */
+  bargeIn?: boolean
 }
 
-export default function AIOrb({ state, size = 220, showLabel = true, onClick }: Props) {
-  const c = config[state]
-  const id = `orb-grad-${state}`
+export default function AIOrb({
+  state,
+  size = 220,
+  showLabel = true,
+  onClick,
+  emotion = 'neutral',
+  bargeIn = false,
+}: Props) {
+  const baseConfig = config[state]
+
+  // During speaking, modulate colors based on emotion
+  const colors = state === 'speaking'
+    ? (EMOTION_COLORS[emotion] || EMOTION_COLORS.neutral)
+    : baseConfig.colors
+
+  const label = bargeIn ? 'Interrupted!' : baseConfig.label
+  const id = `orb-grad-${state}-${emotion}`
 
   return (
     <div className="flex flex-col items-center justify-center gap-6" onClick={onClick}>
@@ -48,11 +76,13 @@ export default function AIOrb({ state, size = 220, showLabel = true, onClick }: 
             ? { scale: [1, 1.08, 1] }
             : state === 'thinking'
             ? { rotate: 360 }
+            : bargeIn
+            ? { scale: [1, 1.15, 0.9, 1] } // sharp barge-in reaction
             : { scale: [1, 1.05, 0.98, 1] }
         }
         transition={{
-          duration: c.speed,
-          repeat: Infinity,
+          duration: bargeIn ? 0.4 : baseConfig.speed,
+          repeat: bargeIn ? 0 : Infinity,
           ease: 'easeInOut',
         }}
       >
@@ -62,13 +92,13 @@ export default function AIOrb({ state, size = 220, showLabel = true, onClick }: 
             key={i}
             className="absolute inset-0 rounded-full"
             style={{
-              background: `radial-gradient(circle, ${c.colors[0]}33 0%, transparent 70%)`,
+              background: `radial-gradient(circle, ${colors[0]}33 0%, transparent 70%)`,
             }}
             animate={{ scale: [1, 1.5 + i * 0.3], opacity: [0.5, 0] }}
             transition={{
-              duration: c.speed,
+              duration: baseConfig.speed,
               repeat: Infinity,
-              delay: i * (c.speed / 3),
+              delay: i * (baseConfig.speed / 3),
               ease: 'easeOut',
             }}
           />
@@ -79,11 +109,11 @@ export default function AIOrb({ state, size = 220, showLabel = true, onClick }: 
           <svg viewBox="0 0 200 200" className="w-full h-full">
             <defs>
               <radialGradient id={id} cx="35%" cy="30%">
-                <stop offset="0%" stopColor={c.colors[0]} stopOpacity="0.9" />
-                <stop offset="50%" stopColor={c.colors[1]} stopOpacity="0.8" />
-                <stop offset="100%" stopColor={c.colors[2]} stopOpacity="0.7" />
+                <stop offset="0%" stopColor={colors[0]} stopOpacity="0.9" />
+                <stop offset="50%" stopColor={colors[1]} stopOpacity="0.8" />
+                <stop offset="100%" stopColor={colors[2]} stopOpacity="0.7" />
               </radialGradient>
-              <filter id={`blur-${state}`}>
+              <filter id={`blur-${state}-${emotion}`}>
                 <feGaussianBlur stdDeviation="3" />
               </filter>
             </defs>
@@ -94,11 +124,11 @@ export default function AIOrb({ state, size = 220, showLabel = true, onClick }: 
               cy="100"
               rx="60"
               ry="30"
-              fill={c.colors[0]}
+              fill={colors[0]}
               fillOpacity="0.3"
-              filter={`url(#blur-${state})`}
+              filter={`url(#blur-${state}-${emotion})`}
               animate={{ rotate: 360 }}
-              transition={{ duration: c.speed * 1.5, repeat: Infinity, ease: 'linear' }}
+              transition={{ duration: baseConfig.speed * 1.5, repeat: Infinity, ease: 'linear' }}
               style={{ transformOrigin: '100px 100px' }}
             />
             <motion.ellipse
@@ -106,27 +136,27 @@ export default function AIOrb({ state, size = 220, showLabel = true, onClick }: 
               cy="100"
               rx="30"
               ry="60"
-              fill={c.colors[2]}
+              fill={colors[2]}
               fillOpacity="0.2"
-              filter={`url(#blur-${state})`}
+              filter={`url(#blur-${state}-${emotion})`}
               animate={{ rotate: -360 }}
-              transition={{ duration: c.speed * 2, repeat: Infinity, ease: 'linear' }}
+              transition={{ duration: baseConfig.speed * 2, repeat: Infinity, ease: 'linear' }}
               style={{ transformOrigin: '100px 100px' }}
             />
             {/* Highlight */}
-            <ellipse cx="70" cy="60" rx="35" ry="25" fill="white" fillOpacity="0.25" filter={`url(#blur-${state})`} />
+            <ellipse cx="70" cy="60" rx="35" ry="25" fill="white" fillOpacity="0.25" filter={`url(#blur-${state}-${emotion})`} />
           </svg>
         </div>
       </motion.div>
 
       {showLabel && (
         <motion.p
-          key={c.label}
+          key={label}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-sm font-medium text-white/60 tracking-wide"
+          className={`text-sm font-medium tracking-wide ${bargeIn ? 'text-cyan-neon' : 'text-white/60'}`}
         >
-          {c.label}
+          {label}
         </motion.p>
       )}
     </div>

@@ -9,10 +9,18 @@ export type VoiceSettings = {
 
 interface VoiceSettingsStore {
   settings: VoiceSettings
+  // Advanced features
+  alwaysOn: boolean
+  bargeIn: boolean
+  enhancedProsody: boolean
+  // Actions
   setVoice: (voiceId: string) => void
   setRate: (rate: number) => void
   setPitch: (pitch: number) => void
   setVolume: (volume: number) => void
+  setAlwaysOn: (on: boolean) => void
+  setBargeIn: (on: boolean) => void
+  setEnhancedProsody: (on: boolean) => void
 }
 
 const loadSettings = (): VoiceSettings => {
@@ -25,8 +33,18 @@ const persist = (settings: VoiceSettings) => {
   localStorage.setItem('aria_voice_settings', JSON.stringify(settings))
 }
 
+const loadBool = (key: string, fallback: boolean): boolean => {
+  const val = localStorage.getItem(key)
+  if (val === null) return fallback
+  return val === 'true'
+}
+
 export const useVoiceSettingsStore = create<VoiceSettingsStore>((set, get) => ({
   settings: loadSettings(),
+  alwaysOn: loadBool('aria_always_on', false),
+  bargeIn: loadBool('aria_barge_in', true),
+  enhancedProsody: loadBool('aria_enhanced_prosody', true),
+
   setVoice: (voiceId) => {
     const next = { ...get().settings, voiceId }
     persist(next)
@@ -46,5 +64,17 @@ export const useVoiceSettingsStore = create<VoiceSettingsStore>((set, get) => ({
     const next = { ...get().settings, volume }
     persist(next)
     set({ settings: next })
+  },
+  setAlwaysOn: (on) => {
+    localStorage.setItem('aria_always_on', String(on))
+    set({ alwaysOn: on })
+  },
+  setBargeIn: (on) => {
+    localStorage.setItem('aria_barge_in', String(on))
+    set({ bargeIn: on })
+  },
+  setEnhancedProsody: (on) => {
+    localStorage.setItem('aria_enhanced_prosody', String(on))
+    set({ enhancedProsody: on })
   },
 }))

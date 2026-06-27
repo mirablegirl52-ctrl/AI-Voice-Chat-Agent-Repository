@@ -15,7 +15,11 @@ const voiceOptions = [
 ]
 
 export default function VoiceSettings() {
-  const { settings, setVoice, setRate, setPitch, setVolume } = useVoiceSettingsStore()
+  const {
+    settings, setVoice, setRate, setPitch, setVolume,
+    alwaysOn, bargeIn, enhancedProsody,
+    setAlwaysOn, setBargeIn, setEnhancedProsody,
+  } = useVoiceSettingsStore()
   const [voices, setVoices] = useState(voiceOptions)
 
   useEffect(() => {
@@ -24,7 +28,35 @@ export default function VoiceSettings() {
 
   return (
     <div className="py-4">
-      <h1 className="text-2xl font-bold text-white mb-6">Voice Settings</h1>
+      <h1 className="text-2xl font-bold text-white mb-2">Voice Settings</h1>
+      <p className="text-white/40 text-sm mb-6">Advanced human-like voice features</p>
+
+      {/* Advanced features section */}
+      <div className="mb-6">
+        <p className="text-white/50 text-xs uppercase tracking-widest mb-3">Advanced Features</p>
+        <GlassCard className="p-4 space-y-1">
+          <ToggleRow
+            label="Hands-Free Mode"
+            desc="Always listening — no need to tap. Uses voice activity detection."
+            value={alwaysOn}
+            onChange={setAlwaysOn}
+          />
+          <div className="h-px bg-white/5 my-2" />
+          <ToggleRow
+            label="Interrupt (Barge-in)"
+            desc="Talk over the AI to interrupt and take your turn."
+            value={bargeIn}
+            onChange={setBargeIn}
+          />
+          <div className="h-px bg-white/5 my-2" />
+          <ToggleRow
+            label="Enhanced Prosody"
+            desc="Natural intonation — questions sound like questions, excitement sounds excited."
+            value={enhancedProsody}
+            onChange={setEnhancedProsody}
+          />
+        </GlassCard>
+      </div>
 
       {/* Voice selection */}
       <div className="mb-6">
@@ -62,13 +94,38 @@ export default function VoiceSettings() {
   )
 }
 
+function ToggleRow({
+  label, desc, value, onChange,
+}: {
+  label: string
+  desc: string
+  value: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex-1 pr-3">
+        <p className="text-sm font-medium text-white/90">{label}</p>
+        <p className="text-xs text-white/40 mt-0.5">{desc}</p>
+      </div>
+      <button
+        onClick={() => onChange(!value)}
+        className={`relative w-11 h-6 rounded-full transition-all flex-shrink-0 ${
+          value ? 'bg-ai-500' : 'bg-white/10'
+        }`}
+      >
+        <motion.div
+          className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-md"
+          animate={{ left: value ? '22px' : '2px' }}
+          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+        />
+      </button>
+    </div>
+  )
+}
+
 function SliderControl({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange,
+  label, value, min, max, step, onChange,
 }: {
   label: string
   value: number

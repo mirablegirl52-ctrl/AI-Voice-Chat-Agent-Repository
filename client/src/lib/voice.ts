@@ -172,7 +172,13 @@ export async function acquireMicAnalyser(): Promise<AnalyserNode | null> {
   if (sharedAnalyser) return sharedAnalyser
 
   try {
-    sharedStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    sharedStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    })
     sharedCtx = new AudioContext()
     const source = sharedCtx.createMediaStreamSource(sharedStream)
     sharedAnalyser = sharedCtx.createAnalyser()

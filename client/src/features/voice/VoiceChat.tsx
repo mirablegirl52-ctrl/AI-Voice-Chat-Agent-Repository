@@ -1,327 +1,115 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import AIOrb, { type OrbState } from '../../components/AIOrb'
+import AIOrb from '../../components/AIOrb'
 import Waveform from '../../components/Waveform'
 import GlassCard from '../../components/GlassCard'
 import { MicIcon, MicOffIcon, VolumeIcon, VolumeOffIcon, StopIcon, ChatBubbleIcon, RefreshIcon } from '../../components/icons'
 import { useAuthStore } from '../../store/authStore'
 import { useVoiceSettingsStore } from '../../store/voiceSettingsStore'
 import { usePersonalityStore } from '../../store/personalityStore'
+import { useAdvancedVoice } from '../../hooks/useAdvancedVoice'
 import { api } from '../../lib/api'
-import {
-  speak,
-  stopSpeaking,
-  createRecognition,
-  isSTTSupported,
-  initVoiceLoading,
-} from '../../lib/voice'
-import type { SpeechRecognition } from '../../types/speech'
 
-interface Transcript {
-  id: number
-  role: 'user' | 'assistant'
-  text: string
+const PERSONALITY_PROFILES: Record<string, 'warm' | 'steady' | 'expressive' | 'precise' | 'patient'> = {
+  friendly: 'warm',
+  professional: 'steady',
+  creative: 'expressive',
+  coding: 'precise',
+  teacher: 'patient',
 }
-
-type ErrorKind = 'stt-unsupported' | 'mic-denied' | 'no-speech' | 'network' | 'generic' | null
-
-const ERROR_MESSAGES: Record<Exclude<ErrorKind, null>, string> = {
-  'stt-unsupported': 'Voice recognition is not supported in this browser. Try Chrome or Edge.',
-  'mic-denied': 'Microphone access denied. Please grant mic permission in your browser settings.',
-  'no-speech': "I didn't hear anything. Try speaking again.",
-  network: 'Network issue. Please check your connection and try again.',
-  generic: 'Something went wrong. Please try again.',
-}
-
-const THINKING_TIMEOUT = 30_000 // 30s safety timeout
 
 export default function VoiceChat() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const voiceSettings = useVoiceSettingsStore((s) => s.settings)
+  const { alwaysOn, bargeIn, enhancedProsody, setAlwaysOn, setBargeIn } = useVoiceSettingsStore()
   const personality = usePersonalityStore((s) => s.personality)
 
-  const [orbState, setOrbState] = useState<OrbState>('idle')
-  const [transcript, setTranscript] = useState('')
-  const [isListening, setIsListening] = useState(false)
-  const [isMicOn, setIsMicOn] = useState(true) // mic enabled (muting blocks STT)
+  const [isMicOn, setIsMicOn] = useState(true)
   const [isSpeakerOn, setIsSpeakerOn] = useState(true)
-  const [autoListen, setAutoListen] = useState(true) // continuous conversation
-  const [messages, setMessages] = useState<Transcript[]>([])
+  const [autoListen, setAutoListen] = useState(true)
   const [chatId, setChatId] = useState<string | null>(null)
-  const [aiText, setAiText] = useState('')
-  const [error, setError] = useState<ErrorKind>(null)
-
-  // Refs for state that callbacks need to read without going stale
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const [bargeInFlash, setBargeInFlash] = useState(false)
   const chatIdRef = useRef<string | null>(null)
-  const isListeningRef = useRef(false)
-  const isSpeakerOnRef = useRef(true)
-  const voiceSettingsRef = useRef(voiceSettings)
-  const autoListenRef = useRef(autoListen)
-  const startingRef = useRef(false) // guard against double-tap
-  const shouldRestartRef = useRef(false) // manual stop vs auto
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const msgIdRef = useRef(0)
-  const mountedRef = useRef(true)
 
-  // Keep refs in sync with state
-  useEffect(() => { chatIdRef.current = chatId }, [chatId])
-  useEffect(() => { isListeningRef.current = isListening }, [isListening])
-  useEffect(() => { isSpeakerOnRef.current = isSpeakerOn }, [isSpeakerOn])
-  useEffect(() => { voiceSettingsRef.current = voiceSettings }, [voiceSettings])
-  useEffect(() => { autoListenRef.current = autoListen }, [autoListen])
-
-  // Initialize voice loading + chat on mount
+  // Create chat on mount
   useEffect(() => {
-    mountedRef.current = true
-    initVoiceLoading()
     if (!user?.id) return
     let cancelled = false
     api.createChat('Voice chat', personality).then(({ chat }) => {
-      if (!cancelled && mountedRef.current) setChatId(chat.id)
-    })
-    return () => {
-      mountedRef.current = false
-      cancelled = true
-      // Cleanup STT + TTS on unmount
-      if (recognitionRef.current) {
-        try { recognitionRef.current.abort() } catch {}
-        recognitionRef.current = null
+      if (!cancelled) {
+        setChatId(chat.id)
+        chatIdRef.current = chat.id
       }
-      stopSpeaking()
-    }
+    })
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
-  // ---- STT lifecycle ----
+  const prosodyProfile = PERSONALITY_PROFILES[personality] || 'warm'
 
-  const startListening = useCallback(() => {
-    // Guard: double-tap, unsupported, mic off, or already listening
-    if (startingRef.current || isListeningRef.current) return
-    if (!isSTTSupported()) {
-      setError('stt-unsupported')
-      return
-    }
-    if (!isMicOn) return // mic is muted
+  const voice = useAdvancedVoice({
+    chatId,
+    voiceSettings,
+    personalityProfile: prosodyProfile,
+    autoListen,
+    alwaysOn,
+    bargeIn: bargeIn && isSpeakerOn,
+    enhancedProsody,
+    enabled: isMicOn && isSpeakerOn,
+  })
 
-    setError(null)
-    stopSpeaking()
-    const rec = createRecognition()
-    if (!rec) {
-      setError('stt-unsupported')
-      return
-    }
+  // Waveform mode based on voice state
+  const waveformMode = voice.state === 'listening' ? 'listening' as const
+    : voice.state === 'speaking' ? 'speaking' as const
+    : 'idle' as const
 
-    startingRef.current = true
-    shouldRestartRef.current = false
-    recognitionRef.current = rec
+  // Auto-dismiss error
+  useEffect(() => {
+    if (!voice.error) return
+    const t = setTimeout(() => {}, 5000)
+    return () => clearTimeout(t)
+  }, [voice.error])
 
-    let finalTranscript = ''
-
-    rec.onstart = () => {
-      startingRef.current = false
-      setIsListening(true)
-      setOrbState('listening')
-    }
-
-    rec.onresult = (e: any) => {
-      // Accumulate all results for robustness (fixes #14)
-      let interim = ''
-      let final = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i]
-        if (r.isFinal) final += r[0].transcript
-        else interim += r[0].transcript
-      }
-      if (final) {
-        finalTranscript = final
-        setTranscript(finalTranscript)
-      } else {
-        setTranscript(interim || finalTranscript)
-      }
-      if (final) {
-        // Stop recognition before sending (prevents double-fire)
-        shouldRestartRef.current = false
-        try { rec.stop() } catch {}
-        handleUserMessage(final.trim())
-      }
-    }
-
-    rec.onerror = (e: any) => {
-      startingRef.current = false
-      setIsListening(false)
-      const errKind = e.error as string
-      if (errKind === 'not-allowed' || errKind === 'service-not-allowed') {
-        setError('mic-denied')
-      } else if (errKind === 'no-speech') {
-        // Silent — don't bother user for silence timeout
-      } else if (errKind === 'network') {
-        setError('network')
-      }
-      // onend will fire after onerror and reset orb to idle
-    }
-
-    rec.onend = () => {
-      startingRef.current = false
-      setIsListening(false)
-      // Only set idle if we're not transitioning to thinking or speaking
-      // (handleUserMessage sets thinking before this fires for final results)
-      // If shouldRestart is false (manual stop or final result), go idle
-      setOrbState((prev) => {
-        if (prev === 'listening') return 'idle'
-        return prev // keep thinking/speaking states
-      })
-    }
-
-    try {
-      rec.start()
-    } catch {
-      startingRef.current = false
-      // Recognition may already be started — ignore
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMicOn])
-
-  const stopListening = useCallback(() => {
-    shouldRestartRef.current = false
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort() } catch {}
-      recognitionRef.current = null
-    }
-    setIsListening(false)
-    setOrbState('idle')
-  }, [])
-
-  // ---- Message handling (reads from refs, not stale state) ----
-
-  const handleUserMessage = useCallback(async (text: string) => {
-    const cid = chatIdRef.current
-    if (!cid) {
-      setError('generic')
-      setOrbState('idle')
-      return
-    }
-    if (!text) {
-      setOrbState('idle')
-      return
-    }
-
-    setTranscript('')
-    setAiText('')
-    setOrbState('thinking')
-    msgIdRef.current++
-    setMessages((prev) => [...prev, { id: msgIdRef.current, role: 'user', text }])
-
-    // Safety timeout: if thinking takes >30s, bail out
-    const timeout = setTimeout(() => {
-      if (mountedRef.current) {
-        setOrbState('idle')
-        setError('network')
-        msgIdRef.current++
-        setMessages((prev) => [...prev, { id: msgIdRef.current, role: 'assistant', text: 'Sorry, I timed out. Please try again.' }])
-      }
-    }, THINKING_TIMEOUT)
-
-    try {
-      const fullText = await api.streamChat(cid, text, {
-        onDelta: (chunk) => {
-          if (mountedRef.current) setAiText((prev) => prev + chunk)
-        },
-        onDone: (final) => {
-          clearTimeout(timeout)
-          if (!mountedRef.current) return
-          msgIdRef.current++
-          setMessages((prev) => [...prev, { id: msgIdRef.current, role: 'assistant', text: final }])
-          setAiText('')
-
-          if (isSpeakerOnRef.current) {
-            setOrbState('speaking')
-            speak(final, voiceSettingsRef.current, {
-              onStart: () => { if (mountedRef.current) setOrbState('speaking') },
-              onEnd: () => {
-                if (!mountedRef.current) return
-                setOrbState('idle')
-                // Auto-listen: restart listening for continuous conversation
-                if (autoListenRef.current) {
-                  setTimeout(() => {
-                    if (mountedRef.current && autoListenRef.current) {
-                      startListening()
-                    }
-                  }, 400)
-                }
-              },
-              onError: () => {
-                if (!mountedRef.current) return
-                setOrbState('idle')
-                if (autoListenRef.current) {
-                  setTimeout(() => startListening(), 400)
-                }
-              },
-            })
-          } else {
-            setOrbState('idle')
-            if (autoListenRef.current) {
-              setTimeout(() => startListening(), 400)
-            }
-          }
-        },
-      })
-    } catch {
-      clearTimeout(timeout)
-      if (!mountedRef.current) return
-      setOrbState('idle')
-      setError('network')
-      msgIdRef.current++
-      setMessages((prev) => [...prev, { id: msgIdRef.current, role: 'assistant', text: 'Sorry, I had trouble responding. Please try again.' }])
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Scroll to bottom on new messages / AI text
+  // Scroll
+  const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, aiText])
+  }, [voice.messages, voice.aiText])
 
-  // Auto-dismiss error after 5s
-  useEffect(() => {
-    if (!error) return
-    const t = setTimeout(() => setError(null), 5000)
-    return () => clearTimeout(t)
-  }, [error])
-
-  // Handlers for control buttons
+  // Handlers
   const handleMicToggle = () => {
-    if (isListening) {
-      stopListening()
+    if (voice.isListening) {
+      voice.stopListening()
     } else {
-      startListening()
+      voice.startListening()
     }
   }
 
   const handleMuteToggle = () => {
     const newMuted = isMicOn
     setIsMicOn(!newMuted)
-    if (newMuted) {
-      // Was on, turning off → stop listening
-      stopListening()
-    }
+    if (newMuted) voice.stopListening()
   }
 
   const handleSpeakerToggle = () => {
     const newOn = !isSpeakerOn
     setIsSpeakerOn(newOn)
-    if (!newOn) stopSpeaking()
+    if (!newOn) voice.interrupt()
   }
 
   const handleReplay = (text: string) => {
     if (!isSpeakerOn) return
-    setOrbState('speaking')
-    speak(text, voiceSettingsRef.current, {
-      onEnd: () => setOrbState('idle'),
-    })
+    voice.replay(text)
   }
+
+  // Barge-in visual flash
+  useEffect(() => {
+    if (voice.state === 'listening' && voice.isSpeaking === false) {
+      // Could trigger flash — kept subtle
+    }
+  }, [voice.state, voice.isSpeaking])
 
   return (
     <div className="flex flex-col items-center min-h-[calc(100vh-160px)] relative">
@@ -335,7 +123,9 @@ export default function VoiceChat() {
             <path d="m15 18-6-6 6-6" />
           </svg>
         </button>
-        <h2 className="text-white/80 font-medium text-sm">Voice Chat</h2>
+        <h2 className="text-white/80 font-medium text-sm">
+          {alwaysOn ? 'Hands-Free Voice' : 'Voice Chat'}
+        </h2>
         <button
           onClick={() => chatId && navigate(`/app/text/${chatId}`)}
           className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 border border-white/10"
@@ -346,49 +136,77 @@ export default function VoiceChat() {
 
       {/* Error banner */}
       <AnimatePresence>
-        {error && (
+        {voice.error && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             className="w-full max-w-md mb-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm text-center"
           >
-            {ERROR_MESSAGES[error]}
+            {voice.error}
           </motion.div>
         )}
       </AnimatePresence>
 
+      {/* Advanced features badges */}
+      <div className="flex items-center gap-2 mb-2">
+        {bargeIn && isSpeakerOn && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+            Barge-in
+          </span>
+        )}
+        {alwaysOn && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-300 border border-green-500/20 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            Always-on
+          </span>
+        )}
+        {voice.emotion !== 'neutral' && voice.state === 'speaking' && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20 capitalize">
+            {voice.emotion}
+          </span>
+        )}
+      </div>
+
       {/* Orb area */}
       <div className="flex-1 flex items-center justify-center w-full">
         <AIOrb
-          state={orbState}
+          state={voice.state}
           size={200}
-          onClick={isListening ? stopListening : (isMicOn ? startListening : undefined)}
+          emotion={voice.emotion}
+          bargeIn={bargeInFlash}
+          onClick={voice.isListening ? voice.stopListening : (isMicOn ? voice.startListening : undefined)}
         />
       </div>
 
-      {/* Waveform */}
+      {/* Waveform — reacts to both listening and speaking */}
       <div className="my-4">
-        <Waveform active={isListening} bars={28} height={40} />
+        <Waveform
+          mode={waveformMode}
+          bars={28}
+          height={40}
+          emotion={voice.emotion}
+          volume={voice.volume}
+        />
       </div>
 
-      {/* Live transcript */}
+      {/* Live transcript / AI response */}
       <AnimatePresence>
-        {(transcript || aiText) && (
+        {(voice.liveTranscript || voice.aiText) && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
             className="w-full max-w-md mb-4"
           >
-            {transcript && (
+            {voice.liveTranscript && (
               <GlassCard className="p-4 mb-2">
-                <p className="text-sm text-cyan-neon">{transcript}</p>
+                <p className="text-sm text-cyan-neon">{voice.liveTranscript}</p>
               </GlassCard>
             )}
-            {aiText && (
+            {voice.aiText && (
               <GlassCard className="p-4" strong glow>
-                <p className="text-sm text-white/90 leading-relaxed">{aiText}</p>
+                <p className="text-sm text-white/90 leading-relaxed">{voice.aiText}</p>
               </GlassCard>
             )}
           </motion.div>
@@ -397,7 +215,7 @@ export default function VoiceChat() {
 
       {/* Controls */}
       <div className="flex items-center gap-4 pb-4">
-        {/* Mic on/off (mutes STT entirely) */}
+        {/* Mic on/off */}
         <button
           onClick={handleMuteToggle}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
@@ -414,17 +232,17 @@ export default function VoiceChat() {
           onClick={handleMicToggle}
           disabled={!isMicOn}
           className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-xl ${
-            isListening
+            voice.isListening
               ? 'bg-ai-gradient shadow-glow'
               : isMicOn
               ? 'bg-white/10 border-2 border-ai-500/50 hover:border-ai-400'
               : 'bg-white/5 border-2 border-white/10 opacity-40'
           }`}
         >
-          {isListening ? <StopIcon className="w-6 h-6 text-white" /> : <MicIcon className="w-6 h-6 text-ai-400" />}
+          {voice.isListening ? <StopIcon className="w-6 h-6 text-white" /> : <MicIcon className="w-6 h-6 text-ai-400" />}
         </motion.button>
 
-        {/* Speaker on/off (mutes TTS) */}
+        {/* Speaker on/off */}
         <button
           onClick={handleSpeakerToggle}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
@@ -440,22 +258,47 @@ export default function VoiceChat() {
         </button>
       </div>
 
-      {/* Auto-listen toggle */}
-      <button
-        onClick={() => setAutoListen(!autoListen)}
-        className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium transition-all mb-2 ${
-          autoListen ? 'bg-ai-500/20 text-ai-300 border border-ai-500/30' : 'bg-white/5 text-white/40 border border-white/10'
-        }`}
-      >
-        <span className={`w-2 h-2 rounded-full ${autoListen ? 'bg-ai-400 animate-pulse' : 'bg-white/30'}`} />
-        {autoListen ? 'Auto-listen ON' : 'Auto-listen OFF'}
-      </button>
+      {/* Mode toggles */}
+      <div className="flex items-center gap-2 mb-2">
+        {/* Auto-listen */}
+        <button
+          onClick={() => setAutoListen(!autoListen)}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+            autoListen ? 'bg-ai-500/20 text-ai-300 border border-ai-500/30' : 'bg-white/5 text-white/40 border border-white/10'
+          }`}
+        >
+          <span className={`w-2 h-2 rounded-full ${autoListen ? 'bg-ai-400 animate-pulse' : 'bg-white/30'}`} />
+          Auto-listen
+        </button>
 
-      {/* Conversation log (compact) */}
-      {messages.length > 0 && (
+        {/* Always-on */}
+        <button
+          onClick={() => setAlwaysOn(!alwaysOn)}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+            alwaysOn ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-white/5 text-white/40 border border-white/10'
+          }`}
+        >
+          <span className={`w-2 h-2 rounded-full ${alwaysOn ? 'bg-green-400 animate-pulse' : 'bg-white/30'}`} />
+          Hands-free
+        </button>
+
+        {/* Barge-in */}
+        <button
+          onClick={() => setBargeIn(!bargeIn)}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+            bargeIn ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-white/5 text-white/40 border border-white/10'
+          }`}
+        >
+          <span className={`w-2 h-2 rounded-full ${bargeIn ? 'bg-cyan-400 animate-pulse' : 'bg-white/30'}`} />
+          Interrupt
+        </button>
+      </div>
+
+      {/* Conversation log */}
+      {voice.messages.length > 0 && (
         <div ref={scrollRef} className="w-full max-w-md max-h-40 overflow-y-auto space-y-2 px-1">
           <AnimatePresence>
-            {messages.slice(-6).map((m) => (
+            {voice.messages.slice(-6).map((m) => (
               <motion.div
                 key={m.id}
                 initial={{ opacity: 0, y: 5 }}

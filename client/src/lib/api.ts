@@ -74,7 +74,11 @@ export const api = {
   async streamChat(
     chatId: string,
     message: string,
-    handlers: { onDelta?: (text: string) => void; onDone?: (fullText: string) => void }
+    handlers: {
+      onDelta?: (text: string) => void
+      onSentence?: (text: string) => void
+      onDone?: (fullText: string) => void
+    }
   ): Promise<string> {
     const token = getToken()
     const res = await fetch(`${BASE}/ai/chat`, {
@@ -106,9 +110,11 @@ export const api = {
           try {
             const payload = JSON.parse(line.slice(6))
             if (payload.type === 'delta' && payload.content) {
-              fullText += payload.content
-              handlers.onDelta?.(payload.content)
-            } else if (payload.type === 'done') {
+                  fullText += payload.content
+                  handlers.onDelta?.(payload.content)
+                } else if (payload.type === 'sentence' && payload.content) {
+                  handlers.onSentence?.(payload.content)
+                } else if (payload.type === 'done') {
               doneFired = true
               handlers.onDone?.(payload.content || fullText)
               return payload.content || fullText
@@ -116,9 +122,8 @@ export const api = {
               throw new Error(payload.message || 'Stream error')
             }
           } catch (e) {
-            // Re-throw if it's our explicit error payload
-            if (e instanceof Error && e.message === (e as any).message) throw e
-            // skip malformed JSON lines
+            // Re-throw our explicit "Stream error" payloads, skip malformed JSON lines
+            if (e instanceof Error && !e.message.includes('Unexpected token')) throw e
           }
         }
       }

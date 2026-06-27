@@ -32,3 +32,6 @@ coverage/
 # Logs
 *.log
 npm-debug.log*
+
+# Platform-managed (drytis.dev) - secrets & generated metadata
+.drytis/
